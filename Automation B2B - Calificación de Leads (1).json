@@ -1,0 +1,481 @@
+{
+  "name": "Sales Automation B2B - Calificación de Leads",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-b2b",
+        "options": {}
+      },
+      "id": "4b2a8414-3f15-4e46-a447-52fe96d757c5",
+      "name": "Recibir lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        112
+      ],
+      "webhookId": "c684c240-2cac-4cdb-b804-4002d66f9f8e"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Nombre: {{ $json.body.name }}\nEmail: {{ $json.body.email }}\nEmpresa: {{ $json.body.company }}\nPresupuesto: {{ $json.body.budget }}\nDescripción del proyecto:\n\"project_description\"",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Sos un analista comercial B2B. Evaluá el fit comercial del lead según su presupuesto y la descripción del proyecto. Asigná lead_score de 1 a 100. Usá qualification_status = \"QUALIFIED\" si el lead tiene buen fit (presupuesto acorde y proyecto claro) y \"NOT_QUALIFIED\" en caso contrario. Indicá el recommended_package más adecuado y un quote_amount estimado (número, sin símbolos, en la misma moneda del presupuesto). En email_body redactá en español un correo personalizado y profesional para el lead con la propuesta y la cotización estimada, firmado por el equipo comercial. Respondé solo con el JSON solicitado."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "03caf48c-005b-49fc-b255-ef2316affe85",
+      "name": "Evaluar fit comercial",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "18f74be2-3b08-43e5-a680-3d230f930ef2",
+      "name": "NVIDIA NIM",
+      "type": "@n8n/n8n-nodes-langchain.lmChatNvidia",
+      "typeVersion": 1,
+      "position": [
+        240,
+        336
+      ],
+      "credentials": {
+        "nvidiaApi": {
+          "id": "MII65Krn8z8Tz7Qp",
+          "name": "NVIDIA Nemotron account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"lead_score\":{\"type\":\"number\",\"minimum\":1,\"maximum\":100},\"qualification_status\":{\"type\":\"string\",\"enum\":[\"QUALIFIED\",\"NOT_QUALIFIED\"]},\"recommended_package\":{\"type\":\"string\"},\"quote_amount\":{\"type\":\"number\"},\"email_body\":{\"type\":\"string\"}},\"required\":[\"lead_score\",\"qualification_status\",\"recommended_package\",\"quote_amount\",\"email_body\"]}"
+      },
+      "id": "20c8aa3c-bbef-472f-950d-942988d500ce",
+      "name": "Formato de evaluación",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        368,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.output.qualification_status }}",
+              "rightValue": "QUALIFIED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "658b2ed8-e86a-406b-8211-ac4119bcdc8b",
+      "name": "¿Lead calificado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        576,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appY4z9w1SzDdcDs5",
+          "mode": "list",
+          "cachedResultName": "Leads B2B y Cotizaciones",
+          "cachedResultUrl": "https://airtable.com/appY4z9w1SzDdcDs5"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblVHsOV9zP0taDWa",
+          "mode": "list",
+          "cachedResultName": "CRM - Leads B2B",
+          "cachedResultUrl": "https://airtable.com/appY4z9w1SzDdcDs5/tblVHsOV9zP0taDWa"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Nombre": "={{ $('Recibir lead').item.json.body.name }}",
+            "Email": "={{ $('Recibir lead').item.json.body.email }}",
+            "Empresa": "={{ $('Recibir lead').item.json.body.company }}",
+            "Presupuesto_Estimado": "={{ String($('Recibir lead').item.json.body.budget ?? '') }}",
+            "Score": "={{ Number($('Evaluar fit comercial').item.json.output.lead_score) }}",
+            "Paquete_Sugerido": "={{ $('Evaluar fit comercial').item.json.output.recommended_package }}",
+            "Monto_Cotizado": "={{ Number($('Evaluar fit comercial').item.json.output.quote_amount) }}",
+            "Estado": "QUALIFIED",
+            "Fecha_Contacto": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Empresa",
+              "displayName": "Empresa",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Presupuesto_Estimado",
+              "displayName": "Presupuesto_Estimado",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "QUALIFIED",
+                  "value": "QUALIFIED"
+                },
+                {
+                  "name": "NOT_QUALIFIED",
+                  "value": "NOT_QUALIFIED"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Paquete_Sugerido",
+              "displayName": "Paquete_Sugerido",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Monto_Cotizado",
+              "displayName": "Monto_Cotizado",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Fecha_Contacto",
+              "displayName": "Fecha_Contacto",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "829994eb-d9de-4b1c-bd23-0f6d39705024",
+      "name": "Guardar lead Prioritario",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        16
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "kGMqYj2AyGtsZANB",
+          "name": "Airtable account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Recibir lead').item.json.body.email }}",
+        "subject": "=Propuesta para {{ $('Recibir lead').item.json.body.company }}: {{ $('Evaluar fit comercial').item.json.output.recommended_package }}",
+        "emailType": "text",
+        "message": "={{ $('Evaluar fit comercial').item.json.output.email_body }}\n\nPaquete recomendado: {{ $('Evaluar fit comercial').item.json.output.recommended_package }}\nCotización estimada: {{ $('Evaluar fit comercial').item.json.output.quote_amount }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "7605ab32-8630-4511-aa7b-fe8ffa2082ee",
+      "name": "Enviar cotización personalizada",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1024,
+        16
+      ],
+      "webhookId": "07e85aab-e74a-43b0-b6e4-167bf1993a3a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "ZGxRIt8ojDlObNN1",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appY4z9w1SzDdcDs5",
+          "mode": "list",
+          "cachedResultName": "Leads B2B y Cotizaciones",
+          "cachedResultUrl": "https://airtable.com/appY4z9w1SzDdcDs5"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblVHsOV9zP0taDWa",
+          "mode": "list",
+          "cachedResultName": "CRM - Leads B2B",
+          "cachedResultUrl": "https://airtable.com/appY4z9w1SzDdcDs5/tblVHsOV9zP0taDWa"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Nombre": "={{ $('Recibir lead').item.json.body.name }}",
+            "Email": "={{ $('Recibir lead').item.json.body.email }}",
+            "Empresa": "={{ $('Recibir lead').item.json.body.company }}",
+            "Presupuesto_Estimado": "={{ String($('Recibir lead').item.json.body.budget ?? '') }}",
+            "Score": "={{ Number($('Evaluar fit comercial').item.json.output.lead_score) }}",
+            "Paquete_Sugerido": "={{ $('Evaluar fit comercial').item.json.output.recommended_package }}",
+            "Monto_Cotizado": "={{ Number($('Evaluar fit comercial').item.json.output.quote_amount) }}",
+            "Estado": "En Nutrición",
+            "Fecha_Contacto": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "a0cf8270-19ba-466b-9528-53d421ef2afa",
+      "name": "Guardar lead En Nutrición",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        208
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "kGMqYj2AyGtsZANB",
+          "name": "Airtable account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Recibir lead').item.json.body.email }}",
+        "subject": "Gracias por contactarnos",
+        "emailType": "text",
+        "message": "=Hola {{ $('Recibir lead').item.json.body.name }},\n\nGracias por tu interés y por compartir los detalles de tu proyecto en {{ $('Recibir lead').item.json.body.company }}. Recibimos tu solicitud y la estamos revisando. Te mantendremos al tanto con información y novedades que puedan ser útiles para tu proyecto.\n\nSaludos,\nEquipo Comercial",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "aedc2ed6-7540-477d-ab7a-d48733acfa5c",
+      "name": "Enviar respuesta estándar",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1024,
+        208
+      ],
+      "webhookId": "1a6cfed2-b5c9-414b-86ba-6aab01c0f01b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "ZGxRIt8ojDlObNN1",
+          "name": "Gmail account 3"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Recibir lead": {
+      "main": [
+        [
+          {
+            "node": "Evaluar fit comercial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar fit comercial": {
+      "main": [
+        [
+          {
+            "node": "¿Lead calificado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NVIDIA NIM": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Evaluar fit comercial",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formato de evaluación": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Evaluar fit comercial",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Lead calificado?": {
+      "main": [
+        [
+          {
+            "node": "Guardar lead Prioritario",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar lead En Nutrición",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar lead Prioritario": {
+      "main": [
+        [
+          {
+            "node": "Enviar cotización personalizada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar lead En Nutrición": {
+      "main": [
+        [
+          {
+            "node": "Enviar respuesta estándar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c85ad0b7-bd82-45a0-9fb6-5ffe99b6b51a",
+  "meta": {
+    "instanceId": "e6f9f13b3003443137094ffe4f386121bc6dc391a68d9b19c7b00fa70c5e12d2"
+  },
+  "nodeGroups": [],
+  "id": "YxUwok7PLYrJnu6Q",
+  "tags": []
+}
